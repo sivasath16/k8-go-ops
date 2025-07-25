@@ -47,11 +47,35 @@ type MonitorReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
 func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := log.FromContext(ctx)
+	log.Info("Reconcile called")
 
 	// TODO(user): your logic here
 
-	return ctrl.Result{}, nil
+	monitor := &apiv1alpha1.Monitor{}
+	if err := r.Get(ctx, req.NamespacedName, monitor); err != nil {
+		return ctrl.Result{}, nil
+	}
+	startTime := monitor.Spec.Start
+	endTime := monitor.Spec.End
+	replicas := monitor.Spec.Replicas
+
+	currentHour := time.Now().UTC().Hour()
+	if currentHour >= startTime && currentHour <= endTime {
+		for _, deploy := range monitor.Spec.Deployments {
+			deployment := &v1.Deployment{}
+			if err := r.Get(ctx, types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployment); err != nil {
+				return ctrl.Result{}, nil
+			}
+			if deployment.Spec.Replicas != &replicas {
+				deployment.Spec.Replicas = &replicas
+				if err := r.Update(ctx, deployment); err != nil {
+					return ctrl.Result{}, nil
+				}
+			}
+		}
+	}
+	return ctrl.Result{RequeueAfter: time.Duration(30 * time.Second)}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
