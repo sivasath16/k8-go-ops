@@ -1,0 +1,9 @@
+apiVersion: monitor.sivasathwik.online/v1
+kind: Monitor
+metadata:
+  labels:
+    app.kubernetes.io/name: k8-ops
+    app.kubernetes.io/managed-by: kustomize
+  name: monitor-sample
+spec:
+  # TODO(user): Add fields here
