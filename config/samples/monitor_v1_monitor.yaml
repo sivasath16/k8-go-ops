@@ -8,7 +8,7 @@ metadata:
 spec:
   # TODO(user): Add fields here
   start: 5 #AM UTC
-  end: 20 #PM UTC
+  end: 22 #PM UTC
   replicas: 5
   deployments:
     - name: nginx

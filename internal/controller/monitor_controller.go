@@ -41,25 +41,27 @@ type MonitorReconciler struct {
 // +kubebuilder:rbac:groups=monitor.sivasathwik.online,resources=monitors/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;update;patch
 
+// isWithinTimeRange checks if current hour is within the specified time range
+// Handles cases where the time range crosses midnight (e.g., 17:00 to 04:00)
+func isWithinTimeRange(currentHour, startHour, endHour int) bool {
+	if startHour <= endHour {
+		// Normal range (e.g., 9 to 17)
+		return currentHour >= startHour && currentHour <= endHour
+	} else {
+		// Range crosses midnight (e.g., 17 to 4)
+		return currentHour >= startHour || currentHour <= endHour
+	}
+}
+
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Monitor object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
 func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 	log.Info("Reconcile called")
 
-	// TODO(user): your logic here
-
 	monitor := &monitorv1.Monitor{}
 	if err := r.Get(ctx, req.NamespacedName, monitor); err != nil {
 		log.Error(err, "unable to fetch Monitor")
-		// Return error so it gets requeued
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -68,23 +70,74 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	replicas := monitor.Spec.Replicas
 
 	currentHour := time.Now().UTC().Hour()
-	if currentHour >= startTime && currentHour <= endTime {
+
+	log.Info("Checking time range",
+		"currentHour", currentHour,
+		"startTime", startTime,
+		"endTime", endTime,
+		"targetReplicas", replicas)
+
+	if isWithinTimeRange(currentHour, startTime, endTime) {
+		log.Info("Within monitoring time range, checking deployments")
+
+		// Track if we updated any deployments
+		updated := false
+
 		for _, deploy := range monitor.Spec.Deployments {
 			deployment := &appsv1.Deployment{}
 			if err := r.Get(ctx, types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployment); err != nil {
 				log.Error(err, "unable to fetch Deployment", "name", deploy.Name, "namespace", deploy.Namespace)
+				monitor.Status.Status = monitorv1.FAILED
+				if statusErr := r.Status().Update(ctx, monitor); statusErr != nil {
+					log.Error(statusErr, "unable to update Monitor status")
+				}
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
-			if deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != replicas {
+
+			currentReplicas := int32(0)
+			if deployment.Spec.Replicas != nil {
+				currentReplicas = *deployment.Spec.Replicas
+			}
+
+			if currentReplicas != replicas {
+				log.Info("Scaling deployment",
+					"name", deploy.Name,
+					"namespace", deploy.Namespace,
+					"from", currentReplicas,
+					"to", replicas)
+
 				deployment.Spec.Replicas = &replicas
 				if err := r.Update(ctx, deployment); err != nil {
+					monitor.Status.Status = monitorv1.FAILED
+					if statusErr := r.Status().Update(ctx, monitor); statusErr != nil {
+						log.Error(statusErr, "unable to update Monitor status")
+					}
 					log.Error(err, "unable to update Deployment", "name", deploy.Name, "namespace", deploy.Namespace)
 					return ctrl.Result{}, err
 				}
-				log.Info("Updated deployment replicas", "name", deploy.Name, "namespace", deploy.Namespace, "replicas", replicas)
+				updated = true
+				log.Info("Successfully scaled deployment", "name", deploy.Name, "namespace", deploy.Namespace, "replicas", replicas)
+			} else {
+				log.Info("Deployment already at target replicas", "name", deploy.Name, "replicas", currentReplicas)
 			}
 		}
+
+		if updated {
+			monitor.Status.Status = monitorv1.SUCCESS
+		} else {
+			// All deployments already at target replicas
+			monitor.Status.Status = monitorv1.SUCCESS
+		}
+	} else {
+		log.Info("Outside monitoring time range", "currentHour", currentHour)
+		monitor.Status.Status = "Outside time range"
 	}
+
+	// Update status
+	if statusErr := r.Status().Update(ctx, monitor); statusErr != nil {
+		log.Error(statusErr, "unable to update Monitor status")
+	}
+
 	return ctrl.Result{RequeueAfter: time.Duration(30 * time.Second)}, nil
 }
 
