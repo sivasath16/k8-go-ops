@@ -7,9 +7,9 @@ metadata:
   name: monitor-sample
 spec:
   # TODO(user): Add fields here
-  start: 5
-  end: 10
+  start: 5 #AM UTC
+  end: 10 #AM UTC
   replicas: 5
   deployments:
-    - name: abc
+    - name: nginx
       namespace: default

@@ -18,11 +18,14 @@ package controller
 
 import (
 	"context"
+	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	monitorv1 "github.com/sivasath16/k8-go-ops/api/v1"
 )
@@ -36,6 +39,7 @@ type MonitorReconciler struct {
 // +kubebuilder:rbac:groups=monitor.sivasathwik.online,resources=monitors,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=monitor.sivasathwik.online,resources=monitors/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=monitor.sivasathwik.online,resources=monitors/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -52,10 +56,13 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// TODO(user): your logic here
 
-	monitor := &apiv1alpha1.Monitor{}
+	monitor := &monitorv1.Monitor{}
 	if err := r.Get(ctx, req.NamespacedName, monitor); err != nil {
-		return ctrl.Result{}, nil
+		log.Error(err, "unable to fetch Monitor")
+		// Return error so it gets requeued
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
 	startTime := monitor.Spec.Start
 	endTime := monitor.Spec.End
 	replicas := monitor.Spec.Replicas
@@ -63,15 +70,18 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	currentHour := time.Now().UTC().Hour()
 	if currentHour >= startTime && currentHour <= endTime {
 		for _, deploy := range monitor.Spec.Deployments {
-			deployment := &v1.Deployment{}
+			deployment := &appsv1.Deployment{}
 			if err := r.Get(ctx, types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployment); err != nil {
-				return ctrl.Result{}, nil
+				log.Error(err, "unable to fetch Deployment", "name", deploy.Name, "namespace", deploy.Namespace)
+				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
-			if deployment.Spec.Replicas != &replicas {
+			if deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != replicas {
 				deployment.Spec.Replicas = &replicas
 				if err := r.Update(ctx, deployment); err != nil {
-					return ctrl.Result{}, nil
+					log.Error(err, "unable to update Deployment", "name", deploy.Name, "namespace", deploy.Namespace)
+					return ctrl.Result{}, err
 				}
+				log.Info("Updated deployment replicas", "name", deploy.Name, "namespace", deploy.Namespace, "replicas", replicas)
 			}
 		}
 	}
