@@ -39,10 +39,31 @@ spec:
           spec:
             description: spec defines the desired state of Monitor
             properties:
-              foo:
+              deployments:
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - name
+                  - namespace
+                  type: object
+                type: array
+              end:
+                type: integer
+              replicas:
+                format: int32
+                type: integer
+              start:
                 description: foo is an example field of Monitor. Edit monitor_types.go
                   to remove/update
-                type: string
+                type: integer
+            required:
+            - deployments
+            - end
+            - replicas
             type: object
           status:
             description: status defines the observed state of Monitor

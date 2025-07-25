@@ -32,7 +32,15 @@ type MonitorSpec struct {
 
 	// foo is an example field of Monitor. Edit monitor_types.go to remove/update
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	Start       int              `json:"start"`
+	End         int              `json:"end"`
+	Replicas    int32            `json:"replicas"`
+	Deployments []NamespacedName `json:"deployments"`
+}
+
+type NamespacedName struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
 }
 
 // MonitorStatus defines the observed state of Monitor.
